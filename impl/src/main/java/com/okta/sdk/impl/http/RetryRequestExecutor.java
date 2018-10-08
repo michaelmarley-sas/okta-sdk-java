@@ -78,13 +78,11 @@ public class RetryRequestExecutor implements RequestExecutor {
                         requestId = getRequestId(response);
                     }
 
-
                     InputStream content = request.getBody();
                     if (content != null && content.markSupported()) {
                         content.reset();
                     }
                 }
-
 
                 if (retryCount > 0) {
                     try {
@@ -106,7 +104,7 @@ public class RetryRequestExecutor implements RequestExecutor {
                 // include X-Okta headers when retrying
                 setOktaHeaders(request, requestId, retryCount);
 
-                response = delegate.executeRequest(request);
+                response = doExecuteRequest(request);
 
                 //allow the loop to continue to execute a retry request
                 if (!shouldRetry(response, retryCount, timer.split())) {
@@ -123,7 +121,13 @@ public class RetryRequestExecutor implements RequestExecutor {
         }
     }
 
-        /**
+    // exposed to allow HttpClientRequestExecutor to be backward compatible
+    // do NOT use directly
+    protected Response doExecuteRequest(Request request) {
+        return delegate.executeRequest(request);
+    }
+
+    /**
      * Exponential sleep on failed request to avoid flooding a service with
      * retries.
      *
@@ -286,12 +290,34 @@ public class RetryRequestExecutor implements RequestExecutor {
         }
     }
 
+    @Deprecated
     public BackoffStrategy getBackoffStrategy() {
         return this.backoffStrategy;
     }
 
+    @Deprecated
     public void setBackoffStrategy(BackoffStrategy backoffStrategy) {
         this.backoffStrategy = backoffStrategy;
+    }
+
+    @Deprecated
+    public int getNumRetries() {
+        return maxRetries;
+    }
+
+    @Deprecated
+    public void setNumRetries(int numRetries) {
+        this.maxRetries = numRetries;
+    }
+
+    @Deprecated
+    int getMaxElapsedMillis() {
+        return maxElapsedMillis;
+    }
+
+    @Deprecated
+    void setMaxElapsedMillis(int maxElapsedMillis) {
+        this.maxElapsedMillis = maxElapsedMillis;
     }
 
     static class Timer {

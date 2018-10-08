@@ -26,13 +26,10 @@ import com.okta.sdk.impl.http.authc.DefaultRequestAuthenticatorFactory
 import com.okta.sdk.impl.http.authc.RequestAuthenticator
 import com.okta.sdk.impl.http.authc.RequestAuthenticatorFactory
 import com.okta.sdk.impl.http.support.DefaultResponse
-import com.sun.deploy.net.HttpResponse
 import org.hamcrest.MatcherAssert
 import org.testng.Assert
 import org.testng.annotations.Test
-import sun.net.www.http.HttpClient
 
-import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 
 import static org.hamcrest.MatcherAssert.assertThat

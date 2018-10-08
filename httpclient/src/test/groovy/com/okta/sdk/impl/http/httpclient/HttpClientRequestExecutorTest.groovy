@@ -26,10 +26,10 @@ import com.okta.sdk.impl.http.HttpHeaders
 import com.okta.sdk.impl.http.QueryString
 import com.okta.sdk.impl.http.Request
 import com.okta.sdk.impl.http.Response
-import com.okta.sdk.impl.http.RestException
 import com.okta.sdk.impl.http.authc.DefaultRequestAuthenticatorFactory
 import com.okta.sdk.impl.http.authc.RequestAuthenticator
 import com.okta.sdk.impl.http.authc.RequestAuthenticatorFactory
+import com.okta.sdk.impl.http.support.DefaultResponse
 import org.apache.http.Header
 import org.apache.http.HttpEntity
 import org.apache.http.HttpResponse
@@ -40,6 +40,7 @@ import org.apache.http.message.BasicHeader
 import org.testng.Assert
 import org.testng.annotations.Test
 
+import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 
 import static org.mockito.Mockito.*
@@ -98,7 +99,7 @@ class HttpClientRequestExecutorTest {
         def requestExecutor = new HttpClientRequestExecutor(clientConfig)
 
         assertThat requestExecutor.maxElapsedMillis, is(2000)
-        assertThat requestExecutor.maxRetries, is(3)
+        assertThat requestExecutor.numRetries, is(3)
     }
 
     @Test
@@ -160,10 +161,10 @@ class HttpClientRequestExecutorTest {
         def httpClientRequestFactory = mock(HttpClientRequestFactory)
         def httpClient = mock(HttpClient)
 
-        when(httpClient.execute(httpRequest1)).thenReturn(httpResponse1)
-        when(httpClient.execute(httpRequest2)).thenReturn(httpResponse2)
         when(httpClientRequestFactory.createHttpClientRequest(request, null)).thenReturn(httpRequest1)
                                                                                           .thenReturn(httpRequest2)
+        when(httpClient.execute(httpRequest1)).thenReturn(httpResponse1)
+        when(httpClient.execute(httpRequest2)).thenReturn(httpResponse2)
 
         def requestExecutor = createRequestExecutor(requestAuthenticator)
         requestExecutor.httpClientRequestFactory = httpClientRequestFactory
@@ -227,79 +228,6 @@ class HttpClientRequestExecutorTest {
         assertThat totalTime, lessThan(1000L)
     }
 
-    @Test
-    void test429RetryHeaders() {
-
-        def httpResponse = mock(HttpResponse)
-
-        def requestExecutor = createRequestExecutor()
-
-        // no headers
-        assertThat requestExecutor.get429DelayMillis(httpResponse), is(-1L)
-
-        // duplicate X-Rate-Limit-Reset header
-        String limitHeaderName = "X-Rate-Limit-Reset"
-        long currentTime = System.currentTimeMillis()
-        long resetTime1 = ((currentTime / 1000L) + 10L) as Long // current time plus 10 seconds
-        long resetTime2 = ((currentTime / 1000L) + 20L) as Long // current time plus 20 seconds
-        Header[] headers = [
-                new BasicHeader("X-Rate-Limit-Reset", resetTime1.toString()),
-                new BasicHeader("X-Rate-Limit-Reset", resetTime2.toString())]
-
-        when(httpResponse.getHeaders(limitHeaderName)).thenReturn(headers)
-        assertThat requestExecutor.get429DelayMillis(httpResponse), is(-1L)
-
-        // valid case
-        def dateFormat = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz")
-        def dateHeaderValue = dateFormat.format(new Date(currentTime))
-        when(httpResponse.getFirstHeader("Date")).thenReturn(new BasicHeader("Date", dateHeaderValue))
-        headers = [new BasicHeader("X-Rate-Limit-Reset", resetTime1.toString())]
-        when(httpResponse.getHeaders(limitHeaderName)).thenReturn(headers)
-
-        // 10 seconds 500ms for slow CPU
-        assertThat requestExecutor.get429DelayMillis(httpResponse), both(greaterThanOrEqualTo(11000L)).and(lessThan(11500L))
-    }
-
-    @Test
-    void shouldRetryTest() {
-
-        def response = mock(Response)
-        when(response.getHttpStatus()).thenReturn(429)
-
-        def requestExecutor = createRequestExecutor()
-        assertThat requestExecutor.shouldRetry(response, 1, 10000L), is(true)
-        assertThat requestExecutor.shouldRetry(response, 1, 20000L), is(false) // max elapsed expired
-        assertThat requestExecutor.shouldRetry(response, 5, 10000L), is(false) // max retry count
-
-        // both disabled
-        requestExecutor.maxRetries = 0
-        requestExecutor.maxElapsedMillis = 0
-        assertThat requestExecutor.shouldRetry(response, 1, 10000L), is(false)
-
-        // maxElapsed enabled
-        requestExecutor.maxRetries = 0
-        requestExecutor.maxElapsedMillis = 15000L
-        assertThat requestExecutor.shouldRetry(response, 1, 10000L), is(true)
-
-        // maxRetries enabled
-        requestExecutor.maxRetries = 4
-        requestExecutor.maxElapsedMillis = 0
-        assertThat requestExecutor.shouldRetry(response, 1, 10000L), is(true)
-
-        requestExecutor.maxRetries = 2
-        requestExecutor.maxElapsedMillis = 30L
-        assertThat requestExecutor.shouldRetry(1, 31L), is(false)
-    }
-
-    @Test
-    void pauseBeforeRetryNegativeDelay() {
-
-        def requestExecutor = createRequestExecutor()
-        requestExecutor.maxElapsedMillis = 30
-        def httpResponse = mockHttpResponse("mock error", 400)
-        expect RestException, {requestExecutor.pauseBeforeRetry(1, httpResponse, 31L)}
-    }
-
     private static long time(Closure closure) {
         def startTime = System.currentTimeMillis()
         closure.call()
@@ -354,6 +282,11 @@ class HttpClientRequestExecutorTest {
         when(request.getMethod()).thenReturn(method)
 
         return request
+    }
+
+    private Response stubResponse(String content, int statusCode = 200, Header[] headers = null) {
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8)
+        return new DefaultResponse(statusCode, null, new ByteArrayInputStream(bytes), bytes.length)
     }
 
     private HttpResponse mockHttpResponse(String content, int statusCode = 200, Header[] headers = null) {
