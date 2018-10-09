@@ -97,9 +97,7 @@ public class RetryRequestExecutor implements RequestExecutor {
                     if (content != null && content.markSupported()) {
                         content.reset();
                     }
-                }
 
-                if (retryCount > 0) {
                     try {
                         // if we cannot pause, then return the original response
                         pauseBeforeRetry(retryCount, response, timer.split());
@@ -126,12 +124,18 @@ public class RetryRequestExecutor implements RequestExecutor {
                     return response;
                 }
 
-            } catch (Exception t) {
-                log.warn("Unable to execute HTTP request: ", t.getMessage(), t);
-
-                if (!shouldRetry(t, retryCount, timer.split())) {
-                    throw new RestException("Unable to execute HTTP request: " + t.getMessage(), t);
+            } catch (SocketException | SocketTimeoutException e) { // known generic retryable exceptions
+                if (!shouldRetry(retryCount, timer.split())) {
+                    throw new RestException("Unable to execute HTTP request: " + e.getMessage(), e);
                 }
+                log.debug("Retrying on {}: {}", e.getClass().getName(), e.getMessage());
+            } catch (RestException e) {
+                // exceptions from delegate marked as retrHttpClientRequestExecutoryable
+                if (!e.isRetryable() || !shouldRetry(retryCount, timer.split())) {
+                    throw e;
+                }
+            } catch (Exception e) {
+                throw new RestException("Unable to execute HTTP request: " + e.getMessage(), e);
             }
         }
     }
@@ -222,28 +226,6 @@ public class RetryRequestExecutor implements RequestExecutor {
         long scaleFactor = 300;
         long result = (long) (Math.pow(2, retries) * scaleFactor);
         return Math.min(result, DEFAULT_MAX_BACKOFF_IN_MILLISECONDS);
-    }
-
-    /**
-     * Returns true if a failed request should be retried.
-     *
-     * @param t       The throwable from the failed request.
-     * @param retryCount  The number of times the current request has been attempted.
-     * @param timeElapsed The time elapsed for this attempt.
-     * @return True if the failed request should be retried.
-     */
-    private boolean shouldRetry(Throwable t, int retryCount, long timeElapsed) {
-        if (!shouldRetry(retryCount, timeElapsed)) {
-            return false;
-        }
-
-        if (t instanceof SocketException ||
-                t instanceof SocketTimeoutException) {
-            log.debug("Retrying on {}: {}", t.getClass().getName(), t.getMessage());
-            return true;
-        }
-
-        return false;
     }
 
     private boolean shouldRetry(int retryCount, long timeElapsed) {
